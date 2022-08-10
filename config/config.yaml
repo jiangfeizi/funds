@@ -1,0 +1,9 @@
+add: {}
+database: 'config/fund.pkl'
+email: 1131066623@qq.com
+passwd: hcekerldyvrigcbj
+remove: []
+socks: 127.0.0.1:2121
+update_interval: 30
+watch:
+- '320007'

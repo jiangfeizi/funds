@@ -1,0 +1,22 @@
+email: 1131066623@qq.com
+held:
+  '001553':
+    cost: 12086.526086526086
+    op: []
+    remain_op: []
+    share: 15757.1
+    method: 1
+    args: []
+  006229:
+    cost: 15756.919349954576
+    op: []
+    remain_op: []
+    share: 8588.46
+    method: 1
+    args: []
+init: {}
+passwd: hcekerldyvrigcbj
+socks: 127.0.0.1:2121
+update_interval: 30
+watch:
+- '320007'
