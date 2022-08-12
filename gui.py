@@ -26,7 +26,7 @@ class Updater(QObject):
             name, val, change, ratio = self.manager.market.info()
             self.market_update_singal.emit(name, val, change, ratio)
             profit = self.manager.total_profit()
-            if profit:
+            if not profit is None:
                 self.profit_update_singal.emit(f'{float(profit):+.2f}')
             else:
                 self.profit_update_singal.emit('')
@@ -93,9 +93,8 @@ class MainWindow(QMainWindow):
                 break
 
     def held_update(self, fS_code, jz_val, jz_ratio, gz_val, gz_ratio):
-        for index, fS_code in enumerate(self.manager.held_funds):
-            fund = self.manager.held_funds[fS_code]
-            if fS_code == fS_code:
+        for index, code in enumerate(self.manager.held_funds):
+            if fS_code == self.manager.held_funds[code].fS_code:
                 self.tableWidget_held.item(index, 1).setText(f'{jz_val}\n{float(jz_ratio):+}%')
                 if gz_val and gz_ratio:
                     self.tableWidget_held.item(index, 2).setText(f'{gz_val}\n{float(gz_ratio):+}%')
@@ -137,9 +136,6 @@ class MainWindow(QMainWindow):
             widget_item = QTableWidgetItem()
             widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
             self.tableWidget_held.setItem(row_index, 2, widget_item)
-
-    def closeEvent(self, event):
-        self.manager.save()
 
     def setupUi(self):
         self.setObjectName("MainWindow")

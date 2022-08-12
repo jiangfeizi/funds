@@ -3,6 +3,7 @@ from datetime import datetime, time, timedelta
 import pickle
 import os
 from collections import OrderedDict
+from tkinter.messagebox import NO
 
 import schedule
 import requests
@@ -11,7 +12,7 @@ import yaml
 from email.mime.text import MIMEText
 import smtplib
 
-from advise import method1
+from advise import *
 
 def strB2Q(ustring):
     """半角转全角"""
@@ -43,6 +44,14 @@ class Fund:
     def date_lastday():
         one = Fund('006624')
         return one.jz_lastday()[0]
+
+    @staticmethod
+    def is_trading():
+        one = Fund('006624')
+        if datetime.strptime(one.gz_data['gztime'], '%Y-%m-%d %H:%M').date() == datetime.now().date():
+            return True
+        else:
+            return False
 
     def __init__(self, fS_code) -> None:
         self.fS_code = fS_code
@@ -115,28 +124,12 @@ class Fund:
 
 
 class HeldFund(Fund):
-    @staticmethod
-    def init(fS_code, init_op, init_asset, init_ratio, init_share, method, args):
-        op = []
-        remain_op = []
-        if init_op:
-            remain_op.append(init_op)
-            cost = 0
-            share = 0
-        else:
-            cost = init_asset / (1 + init_ratio * 0.01)
-            share = init_share
-
-        return HeldFund(fS_code, cost, share, op, remain_op, method, args)
-
-    def __init__(self, fS_code, cost, share, op, remain_op, method, args) -> None:
+    def __init__(self, fS_code, date, asset) -> None:
         super(HeldFund, self).__init__(fS_code)
-        self._cost = cost
-        self._share = share
-        self.op = op
-        self.remain_op = remain_op
-        self.method = method
-        self.args = args
+        self._cost = asset 
+        self._share = asset / self.get_price(date) if asset else 0
+        self.op = []
+        self.remain_op = []
         self.update_date = None
 
     @property
@@ -186,23 +179,47 @@ class HeldFund(Fund):
             self.remain_op.append(op)
 
     def jz_ratio_lastday(self):
-        return (self.share * self.jz_lastday()[1] - self.cost) / self.cost
+        return (self.share * self.jz_lastday()[1] - self.cost) / self.cost if self.cost else None
 
     def gz_ratio_day(self):
-        return (self.share * self.gz_day()[0] - self.cost) / self.cost if self.gz_day() else None
+        return (self.share * self.gz_day()[0] - self.cost) / self.cost if self.gz_day() and self.cost else None
 
     def gz_profit_day(self):
         return self.share * (self.gz_day()[0] - self.jz_lastday()[1]) if self.gz_day() else None
 
-    def get_advise_op(self):
-        if self.method == 1:
-            num = method1(self, *self.args)
-        if num:
-            op = [datetime.now().date().strftime('%Y-%m-%d'), num]
-            self.add_op(op)
-        else:
-            op = None
-        return op
+
+class HeldFundManager:
+    def __init__(self) -> None:
+        self.database = OrderedDict()
+
+    def __iter__(self):
+        return iter(self.database)
+
+    def __getitem__(self, item):
+        return self.database[item]
+
+    def parse(self, path):
+        for line in open(path, encoding='utf8'):
+            args = line.split()
+            if args:
+                if args[0] == 'remove':
+                    self.remove(args[1])
+                elif args[0] == 'add_from_op':
+                    self.add_from_op(args[1], [args[2], float(args[3])])
+                elif args[0] == 'add_from_asset':
+                    self.add_from_asset(args[1], args[2], float(args[3]))
+        open(path, 'w')
+
+    def remove(self, fS_code):
+        if fS_code in self.database:
+            self.database.pop(fS_code)
+
+    def add_from_op(self, fS_code, op):
+        self.database[fS_code] = HeldFund(fS_code, 0, 0)
+        self.database[fS_code].add_op(op)
+
+    def add_from_asset(self, fS_code, date, asset):
+        self.database[fS_code] = HeldFund(fS_code, date, asset)
 
 
 class Market:
@@ -236,9 +253,8 @@ class Manager:
 
         self.market = Market('s_sh000001')
         self.watch_funds = [Fund(item) for item in self.config['watch']]
-        self.held_funds = pickle.load(open(self.config['database'], 'rb')) if os.path.exists(self.config['database']) else OrderedDict()
-        self.remove_funds()
-        self.add_funds()
+        self.held_funds = pickle.load(open(self.config['database'], 'rb')) if os.path.exists(self.config['database']) else HeldFundManager()
+        self.held_funds.parse(self.config['op'])
 
         schedule.every().day.at("14:45").do(self.request_advise)   
 
@@ -247,17 +263,6 @@ class Manager:
         msg = self.log_msg()
         print(msg)
         self.save()
-
-    def remove_funds(self):
-        for fS_code in self.config['remove']:
-            self.held_funds.pop(fS_code)
-        self.config['remove'] = []
-
-    def add_funds(self):
-        for fS_code, value in self.config['add'].items():
-            self.held_funds[fS_code] = HeldFund.init(fS_code, value['init_op'], value['init_asset'], 
-                            value['init_ratio'], value['init_share'], value['method'], value['args'])
-        self.config['add'] = {}
 
     def sendmail(self, msg):
         msg = MIMEText(msg)
@@ -276,35 +281,40 @@ class Manager:
 
     def log_msg(self):
         msg = ''
-        line = f'ID\t名称\t资产\t盈亏\t估值\t方法\t参数\n'
+        line = 'ID\t名称\t资产\t盈亏\t估值\t操作\n'
         msg += line
         for fS_code in self.held_funds:
             fund = self.held_funds[fS_code]
-            line = f'{fS_code}\t{fund.fS_name()}\t{fund.asset()}\t' + \
-                f'{fund.jz_ratio_lastday()}\t{fund.gz_day()[1]}\t{fund.method}\t{fund.args}\n'
+            line = f'{fS_code}\t{fund.fS_name()}\t{fund.asset():.2f}\t' + \
+                f'{fund.jz_ratio_lastday()}\t{fund.gz_day()[1] if fund.gz_day() else None}\t{fund.remain_op}\n'
             msg += line
         return msg
 
     def request_advise(self):
-        msg = ''
-        for fS_code in self.held_funds:
-            fund = self.held_funds[fS_code]
-            op = fund.get_advise_op()
-            if op:
-                line = f'{fund.fS_code}\t{fund.fS_name}\t{op[1]}\n'
-                msg += line
+        if Fund.is_trading():
+            msg = ''
+            for fS_code in self.held_funds:
+                fund = self.held_funds[fS_code]
+                try:
+                    op = eval(f'advise{fS_code}(fund)')
+                    if op:
+                        line = f'{fS_code}\t{fund.fS_name}\t{op[1]}\n'
+                        msg += line
+                    fund.add_op([datetime.now().strftime('%Y-%m-%d'), op])
+                except Exception as e:
+                    print(e)
+                    continue
 
-        msg += '\n' * 3
-        msg += self.log_msg()
-
-        self.sendmail(msg)
+            msg += '\n' * 3
+            msg += self.log_msg()
+            self.sendmail(msg)
 
     def total_profit(self):
         profit = 0
         for fS_code in self.held_funds:
             fund = self.held_funds[fS_code]
             single_profit = fund.gz_profit_day()
-            if single_profit:
+            if not single_profit is None:
                 profit += single_profit
             else:
                 return None
@@ -312,12 +322,11 @@ class Manager:
         return profit
 
     def save(self):
-        yaml.dump(self.config, open(self.path, 'w', encoding='utf8'))
         pickle.dump(self.held_funds, open(self.config['database'], 'wb'))
 
 
 if __name__ == '__main__':
-    one = Manager('workspace/config.yaml')
-    pass
+    Fund.is_trading()
+    
 
 
