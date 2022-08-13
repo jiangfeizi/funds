@@ -11,21 +11,13 @@ from requests.adapters import HTTPAdapter
 import yaml
 from email.mime.text import MIMEText
 import smtplib
+import pandas as pd
+pd.set_option('display.unicode.ambiguous_as_wide', True)
+pd.set_option('display.unicode.east_asian_width', True)
+pd.set_option('display.width', 180)     
 
 from advise import *
 
-def strB2Q(ustring):
-    """半角转全角"""
-    rstring = ""
-    for uchar in ustring:
-        inside_code=ord(uchar)
-        if inside_code == 32:                                 #半角空格直接转化                  
-            inside_code = 12288
-        elif inside_code >= 32 and inside_code <= 126:        #半角字符（除空格）根据关系转化
-            inside_code += 65248
-
-        rstring += chr(inside_code)
-    return rstring
 
 session = requests.Session()
 session.mount('http://', HTTPAdapter(max_retries=3))
@@ -280,15 +272,13 @@ class Manager:
             s.quit()
 
     def log_msg(self):
-        msg = ''
-        line = 'ID\t名称\t资产\t盈亏\t估值\t操作\n'
-        msg += line
+        d = []
         for fS_code in self.held_funds:
             fund = self.held_funds[fS_code]
-            line = f'{fS_code}\t{fund.fS_name()}\t{fund.asset():.2f}\t' + \
-                f'{fund.jz_ratio_lastday()}\t{fund.gz_day()[1] if fund.gz_day() else None}\t{fund.remain_op}\n'
-            msg += line
-        return msg
+            d.append([fS_code, fund.fS_name(), fund.asset(), fund.gz_day()[1] if fund.gz_day() else None, fund.remain_op])
+
+        df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '操作'])
+        return df
 
     def request_advise(self):
         if Fund.is_trading():

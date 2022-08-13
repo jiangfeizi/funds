@@ -3,7 +3,7 @@ database: config/fund.pkl
 op: config/op.txt
 email: 1131066623@qq.com
 passwd: hcekerldyvrigcbj
-socks: null
+socks: 127.0.0.1:2121
 watch:
 - '320007'
 - '006229'
