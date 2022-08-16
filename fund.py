@@ -3,9 +3,9 @@ from datetime import datetime, time, timedelta
 import pickle
 import os
 from collections import OrderedDict
-from tkinter.messagebox import NO
 
 import schedule
+import numpy as np
 import requests
 from requests.adapters import HTTPAdapter
 import yaml
@@ -27,191 +27,164 @@ def update_proxies(socks):
     proxies = {"http": f"socks5://{socks}", "https": f"socks5://{socks}"}
     session.proxies.update(proxies)
 
+update_proxies('127.0.0.1:2121')
+
+
 class Fund:
-    date_pattern = re.compile(r'/\*([0-9]{4}-.*?)\*/')
-    info_pattern = re.compile(r'var[\t ](.*?)[\t ]?=[\t ]?(.*?);')
+    jz_pattern = re.compile(r'var[\t ](.*?)[\t ]?=[\t ]?(.*?);')
     gz_pattern = re.compile(r'"(.*?)":"(.*?)"')
-
-    @staticmethod
-    def date_lastday():
-        one = Fund('006624')
-        return one.jz_lastday()[0]
-
-    @staticmethod
-    def is_trading():
-        one = Fund('006624')
-        if datetime.strptime(one.gz_data['gztime'], '%Y-%m-%d %H:%M').date() == datetime.now().date():
-            return True
-        else:
-            return False
-
+    split_pattern = re.compile(r'\d+\.?\d*')
     def __init__(self, fS_code) -> None:
         self.fS_code = fS_code
-        self._info = {}
-        self.info_time = None
-        self._gz_data = {}
 
-    @property
-    def info(self):
-        try:
-            r = session.get(f'https://fund.eastmoney.com/pingzhongdata/{self.fS_code}.js', timeout=(1, 1))
-            if r.status_code == requests.codes.ok:
-                match_obj = Fund.date_pattern.search(r.text)
-                if match_obj:
-                    info_time = datetime.strptime(match_obj.group(1), '%Y-%m-%d %H:%M:%S')
-                    if not self.info_time or self.info_time != info_time:
-                        self.info_time = info_time
-                        self._info = dict(Fund.info_pattern.findall(r.text))
-            else:
-                print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
-        except requests.exceptions.RequestException as e:
-            print(f'Timeout in connection of {self.fS_code}.')
+        self._jz_update_date = None
+        self.fS_name = None
+        self.fund_Rate = None
+        self._Data_netWorthTrend = None
 
-        return self._info
+        self.gsz = None
+        self.gszzl = None
+        self.gztime = None
 
-    @property
-    def gz_data(self):
+    def update_fund(self):
+        date_day = datetime.now().date()
+        if not self._jz_update_date or self._jz_update_date != date_day:
+            self._jz_update_date = date_day
+            try:
+                r = session.get(f'https://fund.eastmoney.com/pingzhongdata/{self.fS_code}.js', timeout=(1, 1))
+                if r.status_code == requests.codes.ok:
+                    jz_info = dict(self.jz_pattern.findall(r.text))
+
+                    self.fS_name = eval(jz_info['fS_name'])
+                    self.fund_Rate = float(eval(jz_info['fund_Rate']))
+                    self._Data_netWorthTrend = eval(jz_info['Data_netWorthTrend'])
+                else:
+                    print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
+            except requests.exceptions.RequestException as e:
+                print(f'Timeout in connection of {self.fS_code}.')
+
         try:
             r = session.get(f'http://fundgz.1234567.com.cn/js/{self.fS_code}.js', timeout=(1, 1))
             if r.status_code == requests.codes.ok:
-                self._gz_data = dict(Fund.gz_pattern.findall(r.text))
+                gz_info = dict(Fund.gz_pattern.findall(r.text))
+
+                self.gsz = float(gz_info['gsz'])
+                self.gszzl = float(gz_info['gszzl'])
+                self.gztime = datetime.strptime(gz_info['gztime'], '%Y-%m-%d %H:%M')
             else:
                 print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
         except requests.exceptions.RequestException as e:
             print(f'Timeout in connection of {self.fS_code}.')
 
-        return self._gz_data
+    def get_jz_data(self, date):
+        if date > datetime.fromtimestamp(self._Data_netWorthTrend[-1]['x'] / 1000).date():
+            return None
+        else:
+            for item in self._Data_netWorthTrend[::-1]:
+                if datetime.fromtimestamp(item['x'] / 1000).date() == date:
+                    split = float(self.split_pattern.search(item['unitMoney']).group(0)) if item['unitMoney'] else 1
+                    return item['y'], item['equityReturn'], split
+                if datetime.fromtimestamp(item['x'] / 1000).date() < date:
+                    return None
 
-    def fS_name(self):
-        return self.gz_data['name']
-
-    def fund_Rate(self):
-        return float(eval(self.info['fund_Rate']))
-
-    def jz_lastday(self):
+    def get_last_trade_date(self):
         yestearday_date = (datetime.now() - timedelta(1)).date()
-        Data_netWorthTrend = eval(self.info['Data_netWorthTrend'])
-        for item in Data_netWorthTrend[::-1]:
+        for item in self._Data_netWorthTrend[::-1]:
             date = datetime.fromtimestamp(item['x'] / 1000).date()
             if date <= yestearday_date:
-                return (date.strftime('%m-%d'), item['y'], item['equityReturn'])
+                return date
 
-    def gz_day(self):
-        date = datetime.strptime(self.gz_data['gztime'], '%Y-%m-%d %H:%M')
-        if date.date() == datetime.now().date():
-            return (float(self.gz_data['gsz']), float(self.gz_data['gszzl']))
-        else:
-            return None
+    def get_jz_last(self):
+        return self.get_jz_data(self.get_last_trade_date())
 
-    def get_price(self, op_date):
-        op_date = datetime.strptime(op_date, '%Y-%m-%d')
-        Data_netWorthTrend = eval(self.info['Data_netWorthTrend'])
-        if op_date > datetime.fromtimestamp(Data_netWorthTrend[-1]['x'] / 1000):
-            return None
-        else:
-            for item in Data_netWorthTrend[::-1]:
-                time = datetime.fromtimestamp(item['x'] / 1000)
-                if op_date == time:
-                    return item['y']
+    def get_gz_now(self):
+        return self.gsz, self.gszzl
 
 
 class HeldFund(Fund):
-    def __init__(self, fS_code, date, asset) -> None:
+    def __init__(self, fS_code, date, asset, dividend=False) -> None:
         super(HeldFund, self).__init__(fS_code)
-        self._cost = asset 
-        self._share = asset / self.get_price(date) if asset else 0
+        self.update_fund()
+
+        self._op_update_date = date
+        self.cost = asset 
+        self.share = asset / self.get_jz_data(date)[0]
         self.op = []
-        self.remain_op = []
-        self.update_date = None
+        self.remain_op = None
+        self.dividend = dividend
 
-    @property
-    def cost(self):
-        self.update()
-        return self._cost
+    def update_op(self):
+        self.update_fund()
 
-    @property
-    def share(self):
-        self.update()
-        return self._share
+        yestearday_date = (datetime.now() - timedelta(1)).date()
+        while self._op_update_date < yestearday_date:
+            self._op_update_date += timedelta(1)
+            jz_data = self.get_jz_data(self._op_update_date)
+            if jz_data:
+                price, ratio, split = jz_data
+                if self.dividend:
+                    self.cost /= split
+                else:
+                    self.share *= split
+                    
+                if self.remain_op and self.remain_op[0] == self._op_update_date:
+                    self.cost += self.remain_op[1]
+                    self.share += self.remain_op[1] / price * (1 - self.fund_Rate * 0.01)
+                    self.op.append(self.remain_op)
+                    self.remain_op = None
 
     def asset(self):
-        return self.share * self.jz_lastday()[1]
-
-    def update(self):
-        update_date = datetime.now().date()
-        if self.update_date != update_date and self.remain_op:
-            self.update_date = update_date
-
-            remain_op = []
-            for date, num in self.remain_op:
-                op_date = datetime.strptime(date, '%Y-%m-%d')
-                if op_date.date() >= update_date:
-                    remain_op.append([date, num])
-                    continue
-                
-                price = self.get_price(date)
-                if price:
-                    self._cost += num
-                    self._share += num / price * (1 - self.fund_Rate() * 0.01)
-                    self.op.append([date, num])
-                else:
-                    remain_op.append([date, num])
-
-            self.remain_op = remain_op
+        return self.share * self.get_jz_last()[0]
 
     def add_op(self, op):
-        if self.remain_op:
-            for index, (date, _) in enumerate(self.remain_op):
-                if date == op[0]:
-                    self.remain_op[index] = op
-                    break
-            else:
-                self.remain_op.append(op)
-        else:
-            self.remain_op.append(op)
-
-    def jz_ratio_lastday(self):
-        return (self.share * self.jz_lastday()[1] - self.cost) / self.cost if self.cost else None
-
-    def gz_ratio_day(self):
-        return (self.share * self.gz_day()[0] - self.cost) / self.cost if self.gz_day() and self.cost else None
+        self.remain_op = op
 
     def gz_profit_day(self):
-        return self.share * (self.gz_day()[0] - self.jz_lastday()[1]) if self.gz_day() else None
+        gsz, _ = self.get_gz_now()
+        return self.share * (gsz - self.get_jz_last()[0])
 
-
-class HeldFundManager:
+class FundCenter:
     def __init__(self) -> None:
-        self.database = OrderedDict()
-
-    def __iter__(self):
-        return iter(self.database)
-
-    def __getitem__(self, item):
-        return self.database[item]
+        self.watch_funds = OrderedDict()
+        self.held_funds = OrderedDict()
+        self._example_fund = Fund('161121')
 
     def parse(self, path):
         for line in open(path, encoding='utf8'):
-            args = line.split()
-            if args:
-                if args[0] == 'remove':
-                    self.remove(args[1])
-                elif args[0] == 'add_from_op':
-                    self.add_from_op(args[1], [args[2], float(args[3])])
-                elif args[0] == 'add_from_asset':
-                    self.add_from_asset(args[1], args[2], float(args[3]))
+            command = line.split()
+            if command:
+                if command[0] == 'add_watch':
+                    self.watch_funds[command[1]] = Fund(command[1])
+                elif command[0] == 'remove_watch':
+                    self.watch_funds.pop(command[1])
+                elif command[0] == 'init_held':
+                    fS_code, date, asset = command[1], datetime.strptime(command[2], '%Y-%m-%d'), float(command[3])
+                    self.held_funds[fS_code] = HeldFund(fS_code, date, asset)
+                elif command[0] == 'remove_held':
+                    self.held_funds.pop(command[1])
+                elif command[0] == 'op_held':
+                    fS_code, date, num = command[1], datetime.strptime(command[2], '%Y-%m-%d'), float(command[3])
+                    self.held_funds[fS_code].add_op([date, num])
+                else:
+                    print(f'Cann\'t parse line:{line}')
         open(path, 'w')
 
-    def remove(self, fS_code):
-        if fS_code in self.database:
-            self.database.pop(fS_code)
+    def trading(self):
+        return True if self._example_fund.gztime.date() == datetime.now().date() else False
 
-    def add_from_op(self, fS_code, op):
-        self.database[fS_code] = HeldFund(fS_code, 0, 0)
-        self.database[fS_code].add_op(op)
+    def get_last_trade_date(self):
+        return self._example_fund.get_last_trade_date()
 
-    def add_from_asset(self, fS_code, date, asset):
-        self.database[fS_code] = HeldFund(fS_code, date, asset)
+    def update(self):
+        for fS_code in self.watch_funds:
+            fund = self.watch_funds[fS_code]
+            fund.update_fund()
+
+        for fS_code in self.held_funds:
+            fund = self.held_funds[fS_code]
+            fund.update_op()
+
+        self._example_fund.update_fund()
 
 
 class Market:
@@ -244,16 +217,17 @@ class Manager:
             update_proxies(self.config['socks'])
 
         self.market = Market('s_sh000001')
-        self.watch_funds = [Fund(item) for item in self.config['watch']]
-        self.held_funds = pickle.load(open(self.config['database'], 'rb')) if os.path.exists(self.config['database']) else HeldFundManager()
-        self.held_funds.parse(self.config['op'])
+        self.fund_center = pickle.load(open(self.config['database'], 'rb')) if os.path.exists(self.config['database']) else FundCenter()
+        self.fund_center.parse(self.config['op'])
+        self.fund_center.update()
 
-        schedule.every().day.at("14:45").do(self.request_advise)   
+        schedule.every().day.at("14:45").do(self.request_advise)
 
     def monitor(self):
+        self.fund_center.update()
         schedule.run_pending()
-        msg = self.log_msg()
-        print(msg)
+
+        print(self.get_log())
         self.save()
 
     def sendmail(self, msg):
@@ -271,52 +245,52 @@ class Manager:
         finally:
             s.quit()
 
-    def log_msg(self):
+    def get_log(self):
         d = []
-        for fS_code in self.held_funds:
-            fund = self.held_funds[fS_code]
-            d.append([fS_code, fund.fS_name(), fund.asset(), fund.gz_day()[1] if fund.gz_day() else None, fund.remain_op])
+        for fS_code in self.fund_center.held_funds:
+            fund = self.fund_center.held_funds[fS_code]
+            d.append([fS_code, fund.fS_name, f'{fund.asset():.2f}', f'{fund.gszzl}%' if self.fund_center.trading() else None, fund.remain_op])
 
         df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '操作'])
         return df
 
     def request_advise(self):
-        if Fund.is_trading():
+        if self.fund_center.trading():
             msg = ''
-            for fS_code in self.held_funds:
-                fund = self.held_funds[fS_code]
+            for fS_code in self.fund_center.held_funds:
+                fund = self.fund_center.held_funds[fS_code]
                 try:
-                    op = eval(f'advise{fS_code}(fund)')
-                    if op:
-                        line = f'{fS_code}\t{fund.fS_name}\t{op[1]}\n'
+                    num = eval(f'advise{fS_code}(fund)')
+                    if num:
+                        line = f'{fS_code}\t{fund.fS_name}\t{num}\n'
                         msg += line
-                    fund.add_op([datetime.now().strftime('%Y-%m-%d'), op])
+                    fund.add_op([datetime.now().strftime('%Y-%m-%d'), num])
                 except Exception as e:
                     print(e)
                     continue
 
             msg += '\n' * 3
-            msg += self.log_msg()
+            msg += self.get_log()
             self.sendmail(msg)
 
     def total_profit(self):
         profit = 0
-        for fS_code in self.held_funds:
-            fund = self.held_funds[fS_code]
-            single_profit = fund.gz_profit_day()
-            if not single_profit is None:
-                profit += single_profit
-            else:
-                return None
-        
+        for fS_code in self.fund_center.held_funds:
+            fund = self.fund_center.held_funds[fS_code]
+            profit += fund.gz_profit_day()
         return profit
-
+            
     def save(self):
-        pickle.dump(self.held_funds, open(self.config['database'], 'wb'))
+        pickle.dump(self.fund_center, open(self.config['database'], 'wb'))
 
 
 if __name__ == '__main__':
-    Fund.is_trading()
+    one = Market('s_sh000001')
+    one.info
+    one = HeldFund('161121', (datetime.now() - timedelta(1)).date(), 1000)
+    one.update_jz()
+    a = one.update()
+    print()
     
 
 

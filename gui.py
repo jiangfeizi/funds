@@ -25,28 +25,31 @@ class Updater(QObject):
 
             name, val, change, ratio = self.manager.market.info()
             self.market_update_singal.emit(name, val, change, ratio)
-            profit = self.manager.total_profit()
-            if not profit is None:
-                self.profit_update_singal.emit(f'{float(profit):+.2f}')
-            else:
-                self.profit_update_singal.emit('')
-                
-            for fund in self.manager.watch_funds:
-                _, jz_val, jz_ratio = fund.jz_lastday()
-                gz_data = fund.gz_day()
-                if gz_data:
-                    self.watch_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), str(gz_data[0]), str(gz_data[1]))
+
+            for fS_code in self.manager.fund_center.watch_funds:
+                fund = self.manager.fund_center.watch_funds[fS_code]
+                jz_val, jz_ratio, _ = fund.get_jz_last()
+
+                if self.manager.fund_center.trading():
+                    gz_val, gz_ratio = fund.get_gz_now()
+                    self.watch_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), str(gz_val), str(gz_ratio))
                 else:
                     self.watch_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), '', '')
 
-            for fS_code in self.manager.held_funds:
-                fund = self.manager.held_funds[fS_code]
-                _, jz_val, jz_ratio = fund.jz_lastday()
-                gz_data = fund.gz_day()
-                if gz_data:
-                    self.held_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), str(gz_data[0]), str(gz_data[1]))
+            for fS_code in self.manager.fund_center.held_funds:
+                fund = self.manager.fund_center.held_funds[fS_code]
+                jz_val, jz_ratio, _ = fund.get_jz_last()
+                if self.manager.fund_center.trading():
+                    gz_val, gz_ratio = fund.get_gz_now()
+                    self.held_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), str(gz_val), str(gz_ratio))
                 else:
                     self.held_update_singal.emit(fund.fS_code, str(jz_val), str(jz_ratio), '', '')
+
+            if self.manager.fund_center.trading():
+                profit = self.manager.total_profit()
+                self.profit_update_singal.emit(f'{float(profit):+.2f}')
+            else:
+                self.profit_update_singal.emit('')
 
             end = time.time()
             remain = self.manager.config['update_interval'] - end + start
@@ -59,8 +62,6 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
         self.manager = Manager('config/config.yaml')
         self.setupUi()
-
-        self.init()
 
         self.thread = QThread()
         self.updater = Updater(self.manager)
@@ -83,8 +84,8 @@ class MainWindow(QMainWindow):
         self.market_label.setText(self.tr("上证指数:") + f'{float(val):.2f}   {float(change):+.2f}   {float(ratio):+}%')
 
     def watch_update(self, fS_code, jz_val, jz_ratio, gz_val, gz_ratio):
-        for index, fund in enumerate(self.manager.watch_funds):
-            if fS_code == fund.fS_code:
+        for index, code in enumerate(self.manager.fund_center.watch_funds):
+            if fS_code == self.manager.fund_center.watch_funds[code].fS_code:
                 self.tableWidget_watch.item(index, 1).setText(f'{jz_val}\n{float(jz_ratio):+}%')
                 if gz_val and gz_ratio:
                     self.tableWidget_watch.item(index, 2).setText(f'{gz_val}\n{float(gz_ratio):+}%')
@@ -93,49 +94,14 @@ class MainWindow(QMainWindow):
                 break
 
     def held_update(self, fS_code, jz_val, jz_ratio, gz_val, gz_ratio):
-        for index, code in enumerate(self.manager.held_funds):
-            if fS_code == self.manager.held_funds[code].fS_code:
+        for index, code in enumerate(self.manager.fund_center.held_funds):
+            if fS_code == self.manager.fund_center.held_funds[code].fS_code:
                 self.tableWidget_held.item(index, 1).setText(f'{jz_val}\n{float(jz_ratio):+}%')
                 if gz_val and gz_ratio:
                     self.tableWidget_held.item(index, 2).setText(f'{gz_val}\n{float(gz_ratio):+}%')
                 else:
                     self.tableWidget_held.item(index, 2).setText(f'NULL')
                 break
-
-    def init(self):
-        for fund in self.manager.watch_funds:
-            fS_name = fund.fS_name()
-            fS_code = fund.fS_code
-            self.tableWidget_watch.setRowCount(self.tableWidget_watch.rowCount()+1)
-            row_index = self.tableWidget_watch.rowCount() - 1
-            self.tableWidget_watch.setRowHeight(row_index, 50)
-
-            widget_item = QTableWidgetItem(f'{fS_name}\n{fS_code}')
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_watch.setItem(row_index, 0, widget_item)
-            widget_item = QTableWidgetItem()
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_watch.setItem(row_index, 1, widget_item)
-            widget_item = QTableWidgetItem()
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_watch.setItem(row_index, 2, widget_item)
-
-        for fS_code in self.manager.held_funds:
-            fund = self.manager.held_funds[fS_code]
-            fS_name = fund.fS_name()
-            self.tableWidget_held.setRowCount(self.tableWidget_held.rowCount()+1)
-            row_index = self.tableWidget_held.rowCount() - 1
-            self.tableWidget_held.setRowHeight(row_index, 50)
-
-            widget_item = QTableWidgetItem(f'{fS_name}\n{fS_code}')
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_held.setItem(row_index, 0, widget_item)
-            widget_item = QTableWidgetItem()
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_held.setItem(row_index, 1, widget_item)
-            widget_item = QTableWidgetItem()
-            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            self.tableWidget_held.setItem(row_index, 2, widget_item)
 
     def setupUi(self):
         self.setObjectName("MainWindow")
@@ -212,11 +178,47 @@ class MainWindow(QMainWindow):
         self.retranslateUi()
         QMetaObject.connectSlotsByName(self)
 
+        for fS_code in self.manager.fund_center.watch_funds:
+            fund = self.manager.fund_center.watch_funds[fS_code]
+            fS_name = fund.fS_name
+            self.tableWidget_watch.setRowCount(self.tableWidget_watch.rowCount()+1)
+            row_index = self.tableWidget_watch.rowCount() - 1
+            self.tableWidget_watch.setRowHeight(row_index, 50)
+
+            widget_item = QTableWidgetItem(f'{fS_name}\n{fS_code}')
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_watch.setItem(row_index, 0, widget_item)
+            widget_item = QTableWidgetItem()
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_watch.setItem(row_index, 1, widget_item)
+            widget_item = QTableWidgetItem()
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_watch.setItem(row_index, 2, widget_item)
+
+        for fS_code in self.manager.fund_center.held_funds:
+            fund = self.manager.fund_center.held_funds[fS_code]
+            fS_name = fund.fS_name
+            self.tableWidget_held.setRowCount(self.tableWidget_held.rowCount()+1)
+            row_index = self.tableWidget_held.rowCount() - 1
+            self.tableWidget_held.setRowHeight(row_index, 50)
+
+            widget_item = QTableWidgetItem(f'{fS_name}\n{fS_code}')
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_held.setItem(row_index, 0, widget_item)
+            widget_item = QTableWidgetItem()
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_held.setItem(row_index, 1, widget_item)
+            widget_item = QTableWidgetItem()
+            widget_item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+            self.tableWidget_held.setItem(row_index, 2, widget_item)
+
     def retranslateUi(self):
         self.setWindowTitle(self.tr("基金"))
 
         self.tabWidget.setTabText(0, self.tr("自选"))
         self.tabWidget.setTabText(1, self.tr("持仓"))
+        self.tableWidget_watch.setColumnCount(3)
+        self.tableWidget_held.setColumnCount(3)
         self.update_headers()
 
         self.market_label.setText(self.tr("上证指数:"))
@@ -224,14 +226,11 @@ class MainWindow(QMainWindow):
 
 
     def update_headers(self):
-        current = datetime.now()
-        today_date = current.date().strftime('%m-%d')
-        self.tableWidget_headers = [self.tr("名称"), self.tr("净值") + f'\n{Fund.date_lastday()}', self.tr("估值") + f'\n{today_date}']
-        self.tableWidget_watch.setColumnCount(len(self.tableWidget_headers))
+        today_date = datetime.now().date().strftime('%m-%d')
+        self.tableWidget_headers = [self.tr("名称"), self.tr("净值") + f'\n{self.manager.fund_center.get_last_trade_date().strftime("%m-%d")}', 
+                                self.tr("估值") + f'\n{today_date}']
         self.tableWidget_watch.setHorizontalHeaderLabels(self.tableWidget_headers)
-        self.tableWidget_held.setColumnCount(len(self.tableWidget_headers))
         self.tableWidget_held.setHorizontalHeaderLabels(self.tableWidget_headers)
-
 
 if __name__ == "__main__":
     app = QApplication([])
