@@ -158,12 +158,12 @@ class FundCenter:
                 elif command[0] == 'remove_watch':
                     self.watch_funds.pop(command[1])
                 elif command[0] == 'init_held':
-                    fS_code, date, asset = command[1], datetime.strptime(command[2], '%Y-%m-%d'), float(command[3])
+                    fS_code, date, asset = command[1], datetime.strptime(command[2], '%Y-%m-%d').date(), float(command[3])
                     self.held_funds[fS_code] = HeldFund(fS_code, date, asset)
                 elif command[0] == 'remove_held':
                     self.held_funds.pop(command[1])
                 elif command[0] == 'op_held':
-                    fS_code, date, num = command[1], datetime.strptime(command[2], '%Y-%m-%d'), float(command[3])
+                    fS_code, date, num = command[1], datetime.strptime(command[2], '%Y-%m-%d').date(), float(command[3])
                     self.held_funds[fS_code].add_op([date, num])
                 else:
                     print(f'Cann\'t parse line:{line}')
@@ -252,7 +252,7 @@ class Manager:
             d.append([fS_code, fund.fS_name, f'{fund.asset():.2f}', f'{fund.gszzl}%' if self.fund_center.trading() else None, fund.remain_op])
 
         df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '操作'])
-        return df
+        return df.__str__()
 
     def request_advise(self):
         if self.fund_center.trading():
