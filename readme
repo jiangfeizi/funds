@@ -1,5 +1,9 @@
-add_watch
-remove_watch
-init_held
-remove_held
-op_held
+教程：
+在config目录下op文件添加下列命令。
+如：
+
+add_watch 000001  #添加自选
+remove_watch 000001  #删除自选
+init_held 000001  #初始化持有
+remove_held 000001  #删除持有
+op_held 000001  #操作持有
