@@ -7,7 +7,7 @@ from qtpy.QtWidgets import QMainWindow, QWidget, QApplication, QStatusBar, QLabe
     QTableWidget, QHeaderView, QTabWidget, QTableWidgetItem
 from qtpy.QtCore import Signal, QMetaObject, QObject, QThread, Qt
 
-from fund import Fund, Manager
+from fund import Manager
 
 class Updater(QObject):
     market_update_singal = Signal(str, str, str, str)

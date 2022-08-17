@@ -1,11 +1,10 @@
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 import pickle
 import os
 from collections import OrderedDict
 
 import schedule
-import numpy as np
 import requests
 from requests.adapters import HTTPAdapter
 import yaml
