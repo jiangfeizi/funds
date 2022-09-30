@@ -11,6 +11,7 @@ import yaml
 from email.mime.text import MIMEText
 import smtplib
 import pandas as pd
+import numpy as np
 pd.set_option('display.unicode.ambiguous_as_wide', True)
 pd.set_option('display.unicode.east_asian_width', True)
 pd.set_option('display.width', 180)     
@@ -48,7 +49,6 @@ class Fund:
     def update_fund(self):
         date_day = datetime.now().date()
         if not self._jz_update_date or self._jz_update_date != date_day:
-            self._jz_update_date = date_day
             try:
                 r = session.get(f'https://fund.eastmoney.com/pingzhongdata/{self.fS_code}.js', timeout=(1, 1))
                 if r.status_code == requests.codes.ok:
@@ -57,11 +57,13 @@ class Fund:
                     self.fS_name = eval(jz_info['fS_name'])
                     self.fund_Rate = float(eval(jz_info['fund_Rate']))
                     self._Data_netWorthTrend = eval(jz_info['Data_netWorthTrend'])
+                    self._Data_ACWorthTrend = eval(jz_info['Data_ACWorthTrend'].replace('null', 'None'))
                 else:
                     print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
             except requests.exceptions.RequestException as e:
                 print(f'Timeout in connection of {self.fS_code}.')
-
+            else:
+                self._jz_update_date = date_day
         try:
             r = session.get(f'http://fundgz.1234567.com.cn/js/{self.fS_code}.js', timeout=(1, 1))
             if r.status_code == requests.codes.ok:
@@ -96,8 +98,19 @@ class Fund:
     def get_jz_last(self):
         return self.get_jz_data(self.get_last_trade_date())
 
+    def get_max_drawdown(self):
+        jz_data = np.array([item[1] for item in self._Data_ACWorthTrend if item[1]])
+        return np.max((np.maximum.accumulate(jz_data) - jz_data)/np.maximum.accumulate(jz_data))
+
     def get_gz_now(self):
         return self.gsz, self.gszzl
+
+    def get_gz_drawdown(self):
+        jz_data = np.array([item[1] for item in self._Data_ACWorthTrend if item[1]])
+        if self.gztime.date() == datetime.fromtimestamp(self._Data_ACWorthTrend[-1][0] / 1000).date():
+            return 1 - self._Data_ACWorthTrend[-2][1] * (1 + self.gszzl * 0.01) / np.max(jz_data[:-1])
+        else:
+            return 1 - self._Data_ACWorthTrend[-1][1] * (1 + self.gszzl * 0.01) / np.max(jz_data[:-1])
 
 
 class HeldFund(Fund):
@@ -136,7 +149,31 @@ class HeldFund(Fund):
         return self.share * self.get_jz_last()[0]
 
     def add_op(self, op):
-        self.remain_op = op
+        yestearday_date = (datetime.now() - timedelta(1)).date()
+        if op[0] <= yestearday_date:
+            op_update_date = op[0]
+            cost = 0
+            share = 0
+            while op_update_date < yestearday_date:
+                jz_data = self.get_jz_data(op_update_date)
+                if jz_data:
+                    price, ratio, split = jz_data
+                    if self.dividend:
+                        cost /= split
+                    else:
+                        share *= split
+                        
+                    if op[0] == op_update_date:
+                        cost += op[1]
+                        share += op[1] / price * (1 - self.fund_Rate * 0.01)
+                        self.op.append(op)
+
+                op_update_date += timedelta(1)
+
+            self.cost += cost
+            self.share += share
+        else:
+            self.remain_op = op
 
     def gz_profit_day(self):
         gsz, _ = self.get_gz_now()
@@ -217,10 +254,12 @@ class Manager:
 
         self.market = Market('s_sh000001')
         self.fund_center = pickle.load(open(self.config['database'], 'rb')) if os.path.exists(self.config['database']) else FundCenter()
-        self.fund_center.parse(self.config['op'])
         self.fund_center.update()
+        self.fund_center.parse(self.config['op'])
 
         schedule.every().day.at("14:45").do(self.request_advise)
+
+        self.total_profit()
 
     def monitor(self):
         self.fund_center.update()
@@ -248,9 +287,13 @@ class Manager:
         d = []
         for fS_code in self.fund_center.held_funds:
             fund = self.fund_center.held_funds[fS_code]
-            d.append([fS_code, fund.fS_name, f'{fund.asset():.2f}', f'{fund.gszzl}%' if self.fund_center.trading() else None, fund.remain_op])
+            d.append([fS_code, fund.fS_name, f'{fund.asset():.2f}', f'{fund.gszzl}%' if self.fund_center.trading() else None, 
+                        f'{fund.get_max_drawdown()*100:.2f}%' if self.fund_center.trading() else None, 
+                        f'{fund.get_gz_drawdown()*100:.2f}%' if self.fund_center.trading() else None, fund.remain_op])
 
-        df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '操作'])
+        d.sort(key=lambda x: float(x[5][:-1]))
+
+        df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '最大回撤', '回撤', '操作'])
         return df.__str__()
 
     def request_advise(self):
@@ -284,11 +327,17 @@ class Manager:
 
 
 if __name__ == '__main__':
-    one = Market('s_sh000001')
-    one.info
-    one = HeldFund('161121', (datetime.now() - timedelta(1)).date(), 1000)
-    one.update_jz()
-    a = one.update()
+    import numpy as np
+    
+    def maxdrawdown(arr):
+        i = np.argmax((np.maximum.accumulate(arr) - arr)/np.maximum.accumulate(arr)) # end of the period
+        j = np.argmax(arr[:i]) # start of period
+        return (1-arr[i]/arr[j])
+
+    one = HeldFund('006624', (datetime.now() - timedelta(1)).date(), 1000)
+    one.update_op()
+    print(one.get_max_drawdown())
+    print(one.get_gz_drawdown())
     print()
     
 
