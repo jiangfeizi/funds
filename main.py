@@ -278,7 +278,9 @@ if __name__=='__main__':
     watch_funds_dict = {}
     watch_funds_table = []
     morning_star_funds_dict = {}
-    morning_star_funds_table = []
+    zq_funds_table = []
+    zs_funds_table = []
+
 
     with shelve.open(data_shelve) as db:
         shelve_funds = db.get('funds', {})
@@ -349,10 +351,13 @@ if __name__=='__main__':
         for t in t_list:
             t.join()
 
-        for item in tqdm(filter_funds):
+        zq_funds = [item for item in filter_funds if '债券' in item[1]]
+        zs_funds = [item for item in filter_funds if not '债券' in item[1]]
+
+        for item in tqdm(zq_funds):
             fs_code, _, last3_level, last5_level = item
             fund = morning_star_funds_dict[fs_code]
-            morning_star_funds_table.append([fund.fs_code, fund.fs_name, last3_level, last5_level,
+            zq_funds_table.append([fund.fs_code, fund.fs_name, last3_level, last5_level,
                                     fund.jztime, fund.jsz, fund.ac_jsz, fund.gztime, fund.gsz, fund.gszzl, fund.ac_gsz, 
                                     fund.maximum_drawdown, fund.current_drawdown, fund.gz_drawdown])
             if fund.request_date != datetime.now().date() or not os.path.exists(os.path.join(morning_star_dir, f'{fund.fs_code}.png')):
@@ -377,12 +382,48 @@ if __name__=='__main__':
                 plt.subplots_adjust(top=0.95)
                 plt.savefig(os.path.join(morning_star_dir, f'{fund.fs_code}.png'))
 
-        morning_star_funds_table = pd.DataFrame(morning_star_funds_table, columns = ['ID', '名称', '晨星等级(三年)', '晨星等级(五年)', 
+        zq_funds_table = pd.DataFrame(zq_funds_table, columns = ['ID', '名称', '晨星等级(三年)', '晨星等级(五年)', 
             '净值日期', '净值', '累计净值', '估值日期', '估值', '估值率(%)', '累计估值', '最大回撤(%)', '当前回撤(%)', '估值回撤(%)'])
-        morning_star_funds_table['最大回撤(%)'] = morning_star_funds_table['最大回撤(%)'].round(3)
-        morning_star_funds_table['当前回撤(%)'] = morning_star_funds_table['当前回撤(%)'].round(3)
-        morning_star_funds_table['估值回撤(%)'] = morning_star_funds_table['估值回撤(%)'].round(3)
-        morning_star_funds_table.to_csv(os.path.join(args.data_space, 'morning_star.csv'))
+        zq_funds_table['最大回撤(%)'] = zq_funds_table['最大回撤(%)'].round(3)
+        zq_funds_table['当前回撤(%)'] = zq_funds_table['当前回撤(%)'].round(3)
+        zq_funds_table['估值回撤(%)'] = zq_funds_table['估值回撤(%)'].round(3)
+        zq_funds_table.to_csv(os.path.join(args.data_space, 'morning_star_zq.csv'))
+
+        for item in tqdm(zs_funds):
+            fs_code, _, last3_level, last5_level = item
+            fund = morning_star_funds_dict[fs_code]
+            zs_funds_table.append([fund.fs_code, fund.fs_name, last3_level, last5_level,
+                                    fund.jztime, fund.jsz, fund.ac_jsz, fund.gztime, fund.gsz, fund.gszzl, fund.ac_gsz, 
+                                    fund.maximum_drawdown, fund.current_drawdown, fund.gz_drawdown])
+            if fund.request_date != datetime.now().date() or not os.path.exists(os.path.join(morning_star_dir, f'{fund.fs_code}.png')):
+                plt.figure(1, figsize=(20, 20))
+                plt.clf()
+                plt.suptitle(f'{fund.fs_name}', fontsize=16, color='red')
+                plt.subplot(331)
+                draw_sly('jz_1y', fund.jz_1y, fund.jzl_1y)
+                plt.subplot(332)
+                draw_sly('jz_3y', fund.jz_3y, fund.jzl_3y)
+                plt.subplot(333)
+                draw_sly('jz_6y', fund.jz_6y, fund.jzl_6y)
+                plt.subplot(334)
+                draw_sly('jz_1n', fund.jz_1n, fund.jzl_1n)
+                plt.subplot(335)
+                draw_sly('jz_3n', fund.jz_3n, fund.jzl_3n)
+                plt.subplot(336)
+                draw_sly('jz_5n', fund.jz_5n, fund.jzl_5n)
+                plt.subplot(337)
+                draw_sly('jz_total', fund.jz_total, fund.jzl_total)
+                plt.tight_layout()
+                plt.subplots_adjust(top=0.95)
+                plt.savefig(os.path.join(morning_star_dir, f'{fund.fs_code}.png'))
+
+        zs_funds_table = pd.DataFrame(zs_funds_table, columns = ['ID', '名称', '晨星等级(三年)', '晨星等级(五年)', 
+            '净值日期', '净值', '累计净值', '估值日期', '估值', '估值率(%)', '累计估值', '最大回撤(%)', '当前回撤(%)', '估值回撤(%)'])
+        zs_funds_table['最大回撤(%)'] = zs_funds_table['最大回撤(%)'].round(3)
+        zs_funds_table['当前回撤(%)'] = zs_funds_table['当前回撤(%)'].round(3)
+        zs_funds_table['估值回撤(%)'] = zs_funds_table['估值回撤(%)'].round(3)
+        zs_funds_table.to_csv(os.path.join(args.data_space, 'morning_star_zs.csv'))
+
         for item in os.listdir(morning_star_dir):
             fs_code = os.path.splitext(item)[0]
             if not fs_code in morning_star_funds_dict:
