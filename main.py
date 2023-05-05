@@ -264,13 +264,16 @@ if __name__=='__main__':
     if not os.path.exists(morning_star_dir):
         os.mkdir(morning_star_dir)
 
-    session.proxies.update({"http": "http://172.30.3.98:20171", "https": "http://172.30.3.98:20171"})
     if args.proxy:
         session.proxies.update({"http": args.proxy, "https": args.proxy})
 
     shangzheng_info = get_market_info(SHANGZHENG_CODE)
     shenzheng_info = get_market_info(SHENZHENG_CODE)
     chuangye_info = get_market_info(CHUANGYE_CODE)
+
+    print(shangzheng_info)
+    print(shenzheng_info)
+    print(chuangye_info)
 
     watch_funds_dict = {}
     watch_funds_table = []
@@ -318,7 +321,7 @@ if __name__=='__main__':
         watch_funds_table['最大回撤(%)'] = watch_funds_table['最大回撤(%)'].round(3)
         watch_funds_table['当前回撤(%)'] = watch_funds_table['当前回撤(%)'].round(3)
         watch_funds_table['估值回撤(%)'] = watch_funds_table['估值回撤(%)'].round(3)
-        watch_funds_table.to_csv(os.path.join(args.data_space, 'watch_funds.table'))
+        watch_funds_table.to_csv(os.path.join(args.data_space, 'watch_funds.csv'))
 
         shelve_last3_level = db.get('last3_level', None)
         shelve_last5_level = db.get('last5_level', None)
@@ -374,7 +377,7 @@ if __name__=='__main__':
         morning_star_funds_table['最大回撤(%)'] = morning_star_funds_table['最大回撤(%)'].round(3)
         morning_star_funds_table['当前回撤(%)'] = morning_star_funds_table['当前回撤(%)'].round(3)
         morning_star_funds_table['估值回撤(%)'] = morning_star_funds_table['估值回撤(%)'].round(3)
-        morning_star_funds_table.to_csv(os.path.join(args.data_space, 'morning_star.table'))
+        morning_star_funds_table.to_csv(os.path.join(args.data_space, 'morning_star.csv'))
 
         morning_star_funds_dict.update(watch_funds_dict)
         db['last3_level'] = args.last3_level
