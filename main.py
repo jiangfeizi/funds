@@ -22,8 +22,8 @@ plt.rcParams['font.family'] = 'SimHei'
 
 MORNING_STAR_URL = 'https://www.icbcswiss.com/ICBCDynamicSite/site/Fund/FundCXRankDetailLittle.aspx'
 SHANGZHENG_CODE = 's_sh000001'
-SHENZHENG_CODE = 'sz399001'
-CHUANGYE_CODE = 'sz399006'
+SHENZHENG_CODE = 's_sz399001'
+CHUANGYE_CODE = 's_sz399006'
 
 
 jz_pattern = re.compile(r'var[\t ](.*?)[\t ]?=[\t ]?(.*?);')
@@ -67,7 +67,7 @@ def get_market_info(fs_code):
         r = session.get(url=f'http://hq.sinajs.cn/list={fs_code}', headers=headers)
         if r.status_code == requests.codes.ok:
             match_obj = market_pattern.search(r.text)
-            data = [match_obj.group(1), match_obj.group(2), match_obj.group(3), match_obj.group(4)]
+            data = [match_obj.group(1), match_obj.group(2), match_obj.group(3), '%' + match_obj.group(4)]
         else:
             data = None
     except:
