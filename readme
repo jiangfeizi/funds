@@ -9,4 +9,4 @@ remove_held 000001  #删除持有
 op_held 000001  #操作持有
 
 
-ssh -D 2121 root@region-5.autodl.com  -N -p 46343
+ssh -D 2121 root@region-8.autodl.com  -N -p 17032

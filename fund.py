@@ -18,17 +18,19 @@ pd.set_option('display.width', 180)
 
 from advise import *
 
+proxies = {'http': 'http://172.30.3.98:20171', 'https': 'http://172.30.3.98:20171'}
+a = requests.get(r'http://fund.eastmoney.com/pingzhongdata/000060.js', proxies=proxies) #verify是否验证服务器的SSL证书
+# a = requests.get(r'http://www.example.com') #verify是否验证服务器的SSL证书
 
 session = requests.Session()
 session.mount('http://', HTTPAdapter(max_retries=3))
 session.mount('https://', HTTPAdapter(max_retries=3))
 
 def update_proxies(socks):
-    proxies = {"http": f"socks5://{socks}", "https": f"socks5://{socks}"}
+    proxies = {"http": f"http://{socks}", "https": f"http://{socks}"}
     session.proxies.update(proxies)
 
-update_proxies('127.0.0.1:2121')
-
+update_proxies('172.30.3.98:20171')
 
 class Fund:
     jz_pattern = re.compile(r'var[\t ](.*?)[\t ]?=[\t ]?(.*?);')
@@ -41,6 +43,10 @@ class Fund:
         self.fS_name = None
         self.fund_Rate = None
         self._Data_netWorthTrend = None
+        self._syl_1y = None
+        self._syl_3y = None
+        self._syl_6y = None
+        self._syl_1n = None
 
         self.gsz = None
         self.gszzl = None
@@ -58,6 +64,10 @@ class Fund:
                     self.fund_Rate = float(eval(jz_info['fund_Rate']))
                     self._Data_netWorthTrend = eval(jz_info['Data_netWorthTrend'])
                     self._Data_ACWorthTrend = eval(jz_info['Data_ACWorthTrend'].replace('null', 'None'))
+                    self._syl_1y = float(eval(jz_info['syl_1y'])) if eval(jz_info['syl_1y']) else None
+                    self._syl_3y = float(eval(jz_info['syl_3y'])) if eval(jz_info['syl_3y']) else None
+                    self._syl_6y = float(eval(jz_info['syl_6y'])) if eval(jz_info['syl_6y']) else None
+                    self._syl_1n = float(eval(jz_info['syl_1n'])) if eval(jz_info['syl_1n']) else None
                 else:
                     print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
             except requests.exceptions.RequestException as e:
@@ -76,6 +86,8 @@ class Fund:
                 print(f'Status_code is {r.status_code} in connection of {self.fS_code}.')
         except requests.exceptions.RequestException as e:
             print(f'Timeout in connection of {self.fS_code}.')
+        except:
+            pass
 
     def get_jz_data(self, date):
         if date > datetime.fromtimestamp(self._Data_netWorthTrend[-1]['x'] / 1000).date():
@@ -101,6 +113,10 @@ class Fund:
     def get_max_drawdown(self):
         jz_data = np.array([item[1] for item in self._Data_ACWorthTrend if item[1]])
         return np.max((np.maximum.accumulate(jz_data) - jz_data)/np.maximum.accumulate(jz_data))
+    
+    def get_jz_drawdown(self):
+        jz_data = np.array([item[1] for item in self._Data_ACWorthTrend if item[1]])
+        return ((np.maximum.accumulate(jz_data) - jz_data)/np.maximum.accumulate(jz_data))[-1]
 
     def get_gz_now(self):
         return self.gsz, self.gszzl
@@ -110,7 +126,7 @@ class Fund:
         if self.gztime.date() == datetime.fromtimestamp(self._Data_ACWorthTrend[-1][0] / 1000).date():
             return 1 - self._Data_ACWorthTrend[-2][1] * (1 + self.gszzl * 0.01) / np.max(jz_data[:-1])
         else:
-            return 1 - self._Data_ACWorthTrend[-1][1] * (1 + self.gszzl * 0.01) / np.max(jz_data[:-1])
+            return 1 - self._Data_ACWorthTrend[-1][1] * (1 + self.gszzl * 0.01) / np.max(jz_data)
 
 
 class HeldFund(Fund):
@@ -289,11 +305,13 @@ class Manager:
             fund = self.fund_center.held_funds[fS_code]
             d.append([fS_code, fund.fS_name, f'{fund.asset():.2f}', f'{fund.gszzl}%' if self.fund_center.trading() else None, 
                         f'{fund.get_max_drawdown()*100:.2f}%' if self.fund_center.trading() else None, 
-                        f'{fund.get_gz_drawdown()*100:.2f}%' if self.fund_center.trading() else None, fund.remain_op])
+                        f'{fund.get_gz_drawdown()*100:.2f}%' if self.fund_center.trading() else None, 
+                        fund._syl_1y,
+                        fund.remain_op])
 
         d.sort(key=lambda x: float(x[5][:-1]))
 
-        df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '最大回撤', '回撤', '操作'])
+        df = pd.DataFrame(d, columns = ['ID', '名称', '资产', '估值', '最大回撤', '回撤', '近一月', '操作'])
         return df.__str__()
 
     def request_advise(self):
@@ -334,11 +352,49 @@ if __name__ == '__main__':
         j = np.argmax(arr[:i]) # start of period
         return (1-arr[i]/arr[j])
 
-    one = HeldFund('006624', (datetime.now() - timedelta(1)).date(), 1000)
-    one.update_op()
-    print(one.get_max_drawdown())
-    print(one.get_gz_drawdown())
-    print()
+    # one = HeldFund('519198', (datetime.now() - timedelta(1)).date(), 1000)
+    # one.update_op()
+    # print(one.get_max_drawdown())
+    # print(one.get_gz_drawdown())
+    # print()
+
+    import requests
+    
+    import pandas as pd
+    from bs4 import BeautifulSoup
+
+    morning_star_url = 'https://www.icbcswiss.com/ICBCDynamicSite/site/Fund/FundCXRankDetailLittle.aspx'
+    proxies = {'http': 'http://172.30.3.98:20171', 'https': 'http://172.30.3.98:20171',}
+    r = requests.get(morning_star_url, proxies=proxies)
+
+    from bs4 import BeautifulSoup
+
+    bs = BeautifulSoup(r.text, 'lxml')
+    pd.DataFrame()
+
+    total_funds = []
+    for tr in bs.find_all('tr', {'style': 'word-break:keep-all;white-space:nowrap; '}):
+        tds = list(tr.find_all('td'))
+
+        level3 = len(tds[3].string) if '★' in tds[3].string else None
+        level5 = len(tds[4].string) if '★' in tds[3].string else None
+        if level3 == level5 == 5:
+            total_funds.append([tds[0].string, tds[1].string, tds[2].string, level3, level5])
+
+    result = []
+    for item in total_funds:
+        fund = Fund(item[0])
+        fund.update_fund()
+        # print(item[0], item[1], fund.get_max_drawdown(), fund.get_jz_drawdown())
+        result.append((item[0], item[1], fund.get_max_drawdown(), fund.get_jz_drawdown()))
+
+    result.sort(key=lambda item: item[3])
+
+    for i in result:
+        print(f"{i[0]}, {i[1]}, {i[2]:.2f}, {i[3]:.2f}")
+    
+    # pds = pd.DataFrame(total_funds, columns=['基金代码', '基金名称', '晨星评级日期', '晨星评级(三年)', '晨星评级(五年)'], dtype=str)
+    # pds.to_csv(r'\\172.30.3.98\jwdata\111.aaa')
     
 
 
