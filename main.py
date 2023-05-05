@@ -264,6 +264,7 @@ if __name__=='__main__':
     if not os.path.exists(morning_star_dir):
         os.mkdir(morning_star_dir)
 
+    session.proxies.update({"http": "http://172.30.3.98:20171", "https": "http://172.30.3.98:20171"})
     if args.proxy:
         session.proxies.update({"http": args.proxy, "https": args.proxy})
 
@@ -322,6 +323,12 @@ if __name__=='__main__':
         watch_funds_table['当前回撤(%)'] = watch_funds_table['当前回撤(%)'].round(3)
         watch_funds_table['估值回撤(%)'] = watch_funds_table['估值回撤(%)'].round(3)
         watch_funds_table.to_csv(os.path.join(args.data_space, 'watch_funds.csv'))
+        for item in os.listdir(watch_funds_dir):
+            fs_code = os.path.splitext(item)[0]
+            if not fs_code in watch_funds_dict:
+                os.remove(os.path.join(watch_funds_dir, item))
+
+        print('updating...')
 
         shelve_last3_level = db.get('last3_level', None)
         shelve_last5_level = db.get('last5_level', None)
@@ -334,7 +341,6 @@ if __name__=='__main__':
         for fund in filter_funds:
             morning_star_funds_queue.put(fund[0])
 
-        print('updating...')
         t_list = []
         for i in range(args.num_works):
             t = threading.Thread(target = thread_update, args=(morning_star_funds_queue, shelve_funds, morning_star_funds_dict))
@@ -378,6 +384,10 @@ if __name__=='__main__':
         morning_star_funds_table['当前回撤(%)'] = morning_star_funds_table['当前回撤(%)'].round(3)
         morning_star_funds_table['估值回撤(%)'] = morning_star_funds_table['估值回撤(%)'].round(3)
         morning_star_funds_table.to_csv(os.path.join(args.data_space, 'morning_star.csv'))
+        for item in os.listdir(morning_star_dir):
+            fs_code = os.path.splitext(item)[0]
+            if not fs_code in morning_star_funds_dict:
+                os.remove(os.path.join(morning_star_dir, item))
 
         morning_star_funds_dict.update(watch_funds_dict)
         db['last3_level'] = args.last3_level
