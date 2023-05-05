@@ -1,6 +1,5 @@
 import argparse
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import requests
 from requests.adapters import HTTPAdapter
@@ -8,33 +7,17 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import numpy as np
 import re
-import shutil
-import copy
-from datetime import datetime, timedelta
-from threading import Thread
-import threading
+from datetime import datetime
 from queue import Queue, Empty
-import pickle
-from matplotlib.pyplot import MultipleLocator
+import threading
 import os
-from collections import OrderedDict
 from dateutil.relativedelta import relativedelta
-import matplotlib.pyplot
-import matplotlib.dates
-import matplotlib.pyplot as plt
-plt.rcParams['font.family'] = 'SimHei'
-import schedule
-import requests
-from requests.adapters import HTTPAdapter
-import yaml
-from email.mime.text import MIMEText
-import smtplib
-import pandas as pd
-import numpy as np
 import shelve
-pd.set_option('display.unicode.ambiguous_as_wide', True)
-pd.set_option('display.unicode.east_asian_width', True)
-pd.set_option('display.width', 180)    
+from tqdm import tqdm
+
+
+matplotlib.use('Agg')
+plt.rcParams['font.family'] = 'SimHei'
 
 
 MORNING_STAR_URL = 'https://www.icbcswiss.com/ICBCDynamicSite/site/Fund/FundCXRankDetailLittle.aspx'
@@ -66,11 +49,10 @@ def filter_morning_star_funds(last3_level, last5_level):
             fund_last3_level = len(tds[3].string) if '★' in tds[3].string else 0
             fund_last5_level = len(tds[4].string) if '★' in tds[3].string else 0
             if fund_last3_level >= last3_level and fund_last5_level >= last5_level:
-                filter_funds.append([tds[0].string, tds[1].string, fund_last3_level, fund_last5_level])
+                filter_funds.append([str(tds[0].string), str(tds[1].string), fund_last3_level, fund_last5_level])
     except:
         filter_funds = []
         print(f'something is wrong in getting filter_morning_star_funds.')
-
 
     return filter_funds
 
@@ -150,6 +132,7 @@ def draw_sly(title, data, syl):
     plt.plot_date(x, y, 'r')
     inter = len(x) // 4
     plt.xticks(x[::inter])
+
 
 class Fund:
     def __init__(self, fs_code) -> None:
@@ -297,7 +280,7 @@ if __name__=='__main__':
     with shelve.open(data_shelve) as db:
         shelve_funds = db.get('funds', {})
         watch_funds = read_watch_funds(watch_funds_path)
-        for fs_code in watch_funds:
+        for fs_code in tqdm(watch_funds):
             if fs_code in shelve_funds:
                 fund = shelve_funds[fs_code]
                 fund.update()
@@ -348,16 +331,17 @@ if __name__=='__main__':
         for fund in filter_funds:
             morning_star_funds_queue.put(fund[0])
 
+        print('updating...')
         t_list = []
         for i in range(args.num_works):
-            t = Thread(target = thread_update, args=(morning_star_funds_queue, shelve_funds, morning_star_funds_dict))
+            t = threading.Thread(target = thread_update, args=(morning_star_funds_queue, shelve_funds, morning_star_funds_dict))
             t_list.append(t)
             t.start()
 
         for t in t_list:
             t.join()
 
-        for item in filter_funds:
+        for item in tqdm(filter_funds):
             fs_code, _, last3_level, last5_level = item
             fund = morning_star_funds_dict[fs_code]
             morning_star_funds_table.append([fund.fs_code, fund.fs_name, last3_level, last5_level,
