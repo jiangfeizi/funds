@@ -264,7 +264,6 @@ if __name__=='__main__':
     if not os.path.exists(morning_star_dir):
         os.mkdir(morning_star_dir)
 
-    session.proxies.update({"http": "http://172.30.3.98:20171", "https": "http://172.30.3.98:20171"})
     if args.proxy:
         session.proxies.update({"http": args.proxy, "https": args.proxy})
 
